@@ -1,0 +1,13 @@
+# Dependencies
+node_modules
+
+# Temporary files
+.wrangler
+.mesh
+tenantFiles
+tempfiles
+mesh-artifact
+meshes
+
+# Template files from @adobe/aio-cli-plugin-api-mesh
+wrangler.toml
