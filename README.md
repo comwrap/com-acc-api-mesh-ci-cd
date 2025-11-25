@@ -41,11 +41,11 @@ Configure the following secrets under **Settings → Secrets and variables → A
 
 | Secret Name | When Used | Description |
 | --- | --- | --- |
-| `CLIENTID_STAGE`, `CLIENTSECRET_STAGE`, `TECHNICALACCID_STAGE`, `TECHNICALACCEMAIL_STAGE`, `WORKSPACEID_STAGE` | Pushes to `staging` | OAuth client + technical account bound to your staging workspace. |
-| `CLIENTID_PROD`, `CLIENTSECRET_PROD`, `TECHNICALACCID_PROD`, `TECHNICALACCEMAIL_PROD`, `WORKSPACEID_PROD` | Pushes to `production` | Production equivalents of the above credentials. |
-| `IMSORGID` | Both | Adobe organization ID hosting the project. |
-| `ORGID` | Both | Console organization identifier consumed by `aio console:org:select`. |
-| `PROJECTID` | Both | Console project identifier used by `aio console:project:select`. |
+| `CLIENTID_STAGE`, `CLIENTSECRET_STAGE`, `TECHNICALACCID_STAGE`, `TECHNICALACCEMAIL_STAGE`, `WORKSPACEID_STAGE` | Pushes to `staging` | OAuth client + technical account bound to your staging workspace. Workspace project > workspace > id from workspace.json |
+| `CLIENTID_PROD`, `CLIENTSECRET_PROD`, `TECHNICALACCID_PROD`, `TECHNICALACCEMAIL_PROD`, `WORKSPACEID_PROD` | Pushes to `production` | Production equivalents of the above credentials. Workspace: project > workspace > id from workspace.json |
+| `IMSORGID` | Both | ims_org_id from workspace.json |
+| `ORGID` | Both | project > org > id from workspace.json |
+| `PROJECTID` | Both | project > id from workspace.json |
 
 Add any extra secrets referenced by your mesh (for custom resolvers, HTTP headers, etc.) and load them via environment variables or additional steps in the workflow.
 
