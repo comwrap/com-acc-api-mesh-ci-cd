@@ -1,0 +1,38 @@
+name: Run Tests
+
+on:
+  workflow_call:
+
+jobs:
+  newman:
+    name: Run Newman Tests
+    runs-on: ubuntu-latest
+    env:
+      BRANCH_NAME: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      - name: Run Newman Tests
+        run: |
+          set -euo pipefail
+          COLLECTION_PATH="tests/newman/collection.json"
+          ENV_PATH="tests/newman/environment_${BRANCH_NAME}.json"
+
+          if [ ! -f "$COLLECTION_PATH" ]; then
+            echo "Skipping Newman tests: collection not found at $COLLECTION_PATH."
+            exit 0
+          fi
+
+          if [ ! -f "$ENV_PATH" ]; then
+            echo "Skipping Newman tests: environment file not found for branch $BRANCH_NAME."
+            exit 0
+          fi
+
+          echo "Running Newman tests for branch $BRANCH_NAME..."
+          docker run --rm \
+            -v "$PWD":/etc/newman \
+            -w /etc/newman \
+            postman/newman_alpine33 \
+            run "$COLLECTION_PATH" -e "$ENV_PATH"

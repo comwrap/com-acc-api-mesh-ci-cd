@@ -6,16 +6,24 @@ This repository is a lightweight starting point for teams that want a repeatable
 
 ## What You Get
 
-- **Workflow automation** – `.github/workflows/deployMesh.yaml` handles checkout, authentication via the Adobe I/O CLI, mesh creation (or update), and post-deploy validation.
+- **Workflow automation** – `.github/workflows/deploy.yaml` handles checkout, authentication via the Adobe I/O CLI, mesh creation (or update), and post-deploy validation.
 - **Environment awareness** – pushes to `staging` or `production` automatically pull the corresponding credential set and workspace identifiers.
 - **Manual control** – trigger the workflow with `workflow_dispatch` whenever you need an ad-hoc deployment.
 - **Extensibility** – add new environments, steps, linters, or notifications by extending the single workflow file.
+
+### Key Capabilities
+
+- **Secret materialization** – branch-specific secrets can include encrypted mesh credentials (`MESH_SECRETS_*`) that the workflow writes to `secrets.yaml` on the fly and passes through `--secrets` so sensitive resolvers stay out of Git history.
+- **Auto-flag builder** – the workflow inspects the repo for `.env` and `secrets.yaml` and automatically appends the correct `aio api-mesh:*` flags, helping you wire runtime configuration consistently.
+- **Provisioning watchdog** – mesh deployments poll `aio api-mesh:status` for up to 10 minutes with friendly logging, failing early if provisioning stalls or ends unexpectedly.
+- **Reusable testing workflow** – `.github/workflows/tests.yaml` defines a Newman-based regression suite that runs after deployment (via the `tests` job in `deploy.yaml`) and selects the right Postman environment per branch.
 
 Repository layout (expected):
 
 ```
 .
-├── .github/workflows/deployMesh.yaml   # Main CI/CD pipeline
+├── .github/workflows/deploy.yaml       # Main CI/CD pipeline
+├── .github/workflows/tests.yaml        # Reusable Newman regression tests
 ├── mesh.json                          # API Mesh definition (commit your own)
 ├── .env                               # Optional runtime variables used by mesh.json
 └── README.md                          # This documentation
@@ -70,7 +78,7 @@ Once the workflow succeeds, your Adobe API Mesh instance will be created (if mis
 
 ---
 
-## Workflow Walkthrough (`deployMesh.yaml`)
+## Workflow Walkthrough (`deploy.yaml`)
 
 1. **Checkout & Node setup** – pulls repository code and provisions Node 20 on `ubuntu-latest`.
 2. **Branch-aware env mapping** – resolves GitHub secrets to runtime variables (`TARGET_ENV`, `CLIENTID`, etc.). Only `staging` and `production` are allowed to prevent accidental deployments from other branches.
@@ -90,7 +98,7 @@ Extend or reorder steps as needed (e.g., run linting/tests before deployment, se
 - **Multiple meshes** – add extra steps to iterate over multiple `mesh.json` files or parameterize the mesh name via `.env` values.
 - **Observability** – append steps that push deployment metadata to your logging/monitoring stack.
 
-When editing `deployMesh.yaml`, keep the secret-validation step up to date so failures happen quickly.
+When editing `deploy.yaml`, keep the secret-validation step up to date so failures happen quickly.
 
 ---
 

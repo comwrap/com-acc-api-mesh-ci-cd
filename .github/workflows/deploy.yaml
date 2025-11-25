@@ -35,6 +35,11 @@ jobs:
             echo "TECHNICALACCID=${{ secrets.TECHNICALACCID_STAGE }}" >> "$GITHUB_ENV"
             echo "TECHNICALACCEMAIL=${{ secrets.TECHNICALACCEMAIL_STAGE }}" >> "$GITHUB_ENV"
             echo "WORKSPACEID=${{ secrets.WORKSPACEID_STAGE }}" >> "$GITHUB_ENV"
+            {
+              printf '%s\n' 'MESH_SECRETS<<__MESH_SECRETS__'
+              printf '%s\n' "${{ secrets.MESH_SECRETS_STAGE }}"
+              printf '%s\n' '__MESH_SECRETS__'
+            } >> "$GITHUB_ENV"
           elif [ "$BRANCH_NAME" = "production" ]; then
             echo "TARGET_ENV=production" >> "$GITHUB_ENV"
             echo "CLIENTID=${{ secrets.CLIENTID_PROD }}" >> "$GITHUB_ENV"
@@ -42,6 +47,11 @@ jobs:
             echo "TECHNICALACCID=${{ secrets.TECHNICALACCID_PROD }}" >> "$GITHUB_ENV"
             echo "TECHNICALACCEMAIL=${{ secrets.TECHNICALACCEMAIL_PROD }}" >> "$GITHUB_ENV"
             echo "WORKSPACEID=${{ secrets.WORKSPACEID_PROD }}" >> "$GITHUB_ENV"
+            {
+              printf '%s\n' 'MESH_SECRETS<<__MESH_SECRETS__'
+              printf '%s\n' "${{ secrets.MESH_SECRETS_PROD }}"
+              printf '%s\n' '__MESH_SECRETS__'
+            } >> "$GITHUB_ENV"
           else
             echo "Unsupported branch '$BRANCH_NAME'. Only staging and production are allowed." >&2
             exit 1
@@ -60,6 +70,17 @@ jobs:
             echo "Please set all required secrets: CLIENTID, CLIENTSECRET, TECHNICALACCID, TECHNICALACCEMAIL, IMSORGID, ORGID, PROJECTID, WORKSPACEID"
             exit 1
           fi
+          if [ -n "${MESH_SECRETS:-}" ]; then
+            echo "Mesh secrets detected in environment"
+          else
+            echo "Warning: MESH_SECRETS not provided; secrets.yaml will not be generated" >&2
+          fi
+      - name: Materialize mesh secrets file
+        if: ${{ env.MESH_SECRETS != '' }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$MESH_SECRETS" > secrets.yaml
+          chmod 600 secrets.yaml
       - name: Setup CLI
         uses: adobe/aio-cli-setup-action@1.3.0
         with:
@@ -100,15 +121,59 @@ jobs:
       - name: Debug Get Mesh Output
         continue-on-error: true
         run: echo "Get Mesh Output - ${{ steps.get_mesh.outputs.mesh_output }}"
+      - name: Compute Mesh Credential Flags
+        id: mesh_args
+        run: |
+          set -euo pipefail
+          MESH_ARGS="-c mesh.json"
+          if [ -f ".env" ]; then
+            MESH_ARGS="$MESH_ARGS --env .env"
+          fi
+          if [ -f "secrets.yaml" ]; then
+            MESH_ARGS="$MESH_ARGS --secrets secrets.yaml"
+          fi
+          echo "args=$MESH_ARGS" >> "$GITHUB_OUTPUT"
       - name: Create Mesh
         if: ${{ contains(steps.get_mesh.outputs.mesh_output, 'No mesh found') }}
-        run: aio api-mesh:create -c mesh.json --env .env
+        run: aio api-mesh:create ${{ steps.mesh_args.outputs.args }}
       - name: Update Mesh
         if: ${{ !contains(steps.get_mesh.outputs.mesh_output, 'No mesh found') }}
-        run: aio api-mesh:update -c mesh.json --env .env
-      - name: Wait for 30 seconds
-        run: sleep 30
+        run: aio api-mesh:update ${{ steps.mesh_args.outputs.args }}
+      - name: Wait for Mesh Provisioning
+        run: |
+          set -euo pipefail
+          max_attempts=60
+          attempt=1
+          while [ "$attempt" -le "$max_attempts" ]; do
+            echo "Polling mesh status (attempt $attempt/$max_attempts)..."
+            status_output=$(aio api-mesh:status 2>&1 || true)
+            echo "$status_output"
+
+            if echo "$status_output" | grep -F "Mesh provisioned successfully." >/dev/null; then
+              echo "Mesh provisioned successfully."
+              break
+            elif echo "$status_output" | grep -Eq "Mesh is currently building|Your mesh is being provisioned.|Currently provisioning your mesh|Wait a few minutes and try again.|Unable to get mesh status"; then
+              echo "Mesh is currently building. Waiting 10 seconds before next check."
+              sleep 10
+            else
+              echo "Unexpected status output. Treating as failure."
+              exit 1
+            fi
+
+            attempt=$((attempt + 1))
+          done
+
+          if [ "$attempt" -gt "$max_attempts" ]; then
+            echo "Mesh provisioning did not finish within the allotted time."
+            exit 1
+          fi
       - name: Describe Mesh
         run: aio api-mesh:describe
       - name: Get Mesh Status
         run: aio api-mesh:status
+
+  tests:
+      name: Execute Tests
+      needs: [deploy]
+      # Use the path to the reusable workflow file
+      uses: ./.github/workflows/tests.yaml
