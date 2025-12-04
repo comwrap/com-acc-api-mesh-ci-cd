@@ -13,6 +13,7 @@ This repository is a lightweight starting point for teams that want a repeatable
 
 ### Key Capabilities
 
+- **Dynamic `.env` injection** – GitHub repository variables (`ENV_STAGE`, `ENV_PROD`) can store full `.env` payloads, and the workflow materializes them into a runtime `.env` before invoking the API Mesh CLI.
 - **Secret materialization** – branch-specific secrets can include encrypted mesh credentials (`MESH_SECRETS_*`) that the workflow writes to `secrets.yaml` on the fly and passes through `--secrets` so sensitive resolvers stay out of Git history.
 - **Auto-flag builder** – the workflow inspects the repo for `.env` and `secrets.yaml` and automatically appends the correct `aio api-mesh:*` flags, helping you wire runtime configuration consistently.
 - **Provisioning watchdog** – mesh deployments poll `aio api-mesh:status` for up to 10 minutes with friendly logging, failing early if provisioning stalls or ends unexpectedly.
@@ -57,6 +58,15 @@ Configure the following secrets under **Settings → Secrets and variables → A
 
 Add any extra secrets referenced by your mesh (for custom resolvers, HTTP headers, etc.) and load them via environment variables or additional steps in the workflow.
 
+### Recommended GitHub Variables
+
+| Variable Name | When Used | Description |
+| --- | --- | --- |
+| `ENV_STAGE` | Pushes to `staging` | Full contents of the `.env` file you want the staging deployment to consume (multi-line values supported). |
+| `ENV_PROD` | Pushes to `production` | Production `.env` payload, typically mirroring secure resolver configuration for production meshes. |
+
+If these variables are present, the workflow writes them to `.env` before running `aio api-mesh:*`. If they are empty, the pipeline falls back to any `.env` file committed in the repository or skips the flag entirely.
+
 ---
 
 ## Quick Start
@@ -65,7 +75,7 @@ Add any extra secrets referenced by your mesh (for custom resolvers, HTTP header
 2. **Add your mesh files**:
 	- Place the primary mesh definition in `mesh.json`.
 	- Commit any supporting schemas/resolvers alongside it.
-	- (Optional) store non-secret runtime values in `.env` (e.g., `MESH_NAME=my-mesh`). The workflow passes `--env .env` to the CLI so those values are merged during create/update.
+	- Provide runtime configuration via Git-tracked `.env` files **or** populate the `ENV_STAGE` / `ENV_PROD` GitHub variables with the exact `.env` content you want injected per environment.
 3. **Populate GitHub Secrets** with the values listed above.
 4. **Adopt the branch convention**:
 	- Push or merge to `staging` for deploying to staging Adobe workspaces.

@@ -40,6 +40,13 @@ jobs:
               printf '%s\n' "${{ secrets.MESH_SECRETS_STAGE }}"
               printf '%s\n' '__MESH_SECRETS__'
             } >> "$GITHUB_ENV"
+            if [ -n "${{ vars.ENV_STAGE }}" ]; then
+              {
+                printf '%s\n' 'AIO_ENV_FILE<<__AIO_ENV_FILE__'
+                printf '%s\n' "${{ vars.ENV_STAGE }}"
+                printf '%s\n' '__AIO_ENV_FILE__'
+              } >> "$GITHUB_ENV"
+            fi
           elif [ "$BRANCH_NAME" = "production" ]; then
             echo "TARGET_ENV=production" >> "$GITHUB_ENV"
             echo "CLIENTID=${{ secrets.CLIENTID_PROD }}" >> "$GITHUB_ENV"
@@ -52,6 +59,13 @@ jobs:
               printf '%s\n' "${{ secrets.MESH_SECRETS_PROD }}"
               printf '%s\n' '__MESH_SECRETS__'
             } >> "$GITHUB_ENV"
+            if [ -n "${{ vars.ENV_PROD }}" ]; then
+              {
+                printf '%s\n' 'AIO_ENV_FILE<<__AIO_ENV_FILE__'
+                printf '%s\n' "${{ vars.ENV_PROD }}"
+                printf '%s\n' '__AIO_ENV_FILE__'
+              } >> "$GITHUB_ENV"
+            fi
           else
             echo "Unsupported branch '$BRANCH_NAME'. Only staging and production are allowed." >&2
             exit 1
@@ -81,6 +95,12 @@ jobs:
           set -euo pipefail
           printf '%s\n' "$MESH_SECRETS" > secrets.yaml
           chmod 600 secrets.yaml
+      - name: Materialize branch .env file
+        if: ${{ env.AIO_ENV_FILE != '' }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$AIO_ENV_FILE" > .env
+          chmod 600 .env
       - name: Setup CLI
         uses: adobe/aio-cli-setup-action@1.3.0
         with:

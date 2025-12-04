@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the repository uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2025-12-04
+### Added
+- Workflow now consumes GitHub repository variables `ENV_STAGE` / `ENV_PROD`, writes their full multi-line contents into `.env`, and feeds that file to the Adobe API Mesh CLI before create/update operations.
+- Documentation updates explaining the new `.env` injection path and the recommended GitHub variables for environment-specific configuration.
+
 ## [1.1.0] - 2025-11-25
 ### Added
 - New primary workflow `.github/workflows/deploy.yaml` that materializes branch-specific mesh secrets, computes CLI flags automatically, and waits for mesh provisioning with retry logic.
