@@ -20,3 +20,8 @@ All notable changes to this project will be documented in this file. The format 
 ## [1.0.0] - 2025-11-19
 ### Added
 - Initial Adobe API Mesh CI/CD template with a GitHub Actions workflow for staging/production deployments, README-based setup guidance, and secret validation.
+
+## [2.0.0] - 2025-12-09
+### Added
+- Prebuilt runner image with `aio`
+- no CLI installation steps in the workflow.
