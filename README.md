@@ -1,5 +1,7 @@
 # Adobe API Mesh CI/CD Template
 
+> ⚠️ **Important:** Starting from version 2.x, a custom container is required. The Dockerfile can be found in `.github/images/aio-mesh-runner/Dockerfile`. If you prefer to use a standard GitHub runner without a custom container, please use version 1.x of this template.
+
 This repository is a lightweight starting point for teams that want a repeatable GitHub Actions pipeline for provisioning and updating Adobe API Mesh configurations. Fork it, drop in your mesh definition files, wire up the required Adobe Developer Console credentials, and you will have a push-button deployment path for staging and production meshes.
 
 ---
