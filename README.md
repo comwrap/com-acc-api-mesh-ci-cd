@@ -69,6 +69,74 @@ If these variables are present, the workflow writes them to `.env` before runnin
 
 ---
 
+### Runner image requirements
+This template is designed to run the deploy workflow inside a lightweight Docker image that already contains Node.js 20.x and the Adobe AIO CLI, but does not bake in the API Mesh plugin. The plugin is installed on each run inside the GitHub Actions job so that it is always available under the correct `$HOME` and CLI config scope.
+
+Dockerfile used by the workflow:
+
+```
+FROM node:20-bullseye-slim
+
+RUN apt-get update && apt-get install -y \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g @adobe/aio-cli && \
+    npm cache clean --force && \
+    rm -rf /root/.npm /tmp/*
+
+WORKDIR /workspace
+
+```
+Build and push the AMD64 image:
+```
+docker buildx build \
+  --platform linux/amd64 \
+  -t ghcr.io/<org-or-user>/aio-mesh-runner:latest \
+  --push \
+  -f .github/images/aio-mesh-runner/Dockerfile .
+```
+
+Reference it in `deploy.yaml`:
+```
+jobs:
+  deploy:
+    runs-on: ${{ matrix.os }}
+    container:
+      image: ghcr.io/<org-or-user>/aio-mesh-runner:latest
+    strategy:
+      matrix:
+        node-version: ["20"]
+        os: [ubuntu-latest]
+    # ...
+
+```
+#### Why the API Mesh plugin is installed in the runner
+The API Mesh plugin (`@adobe/aio-cli-plugin-api-mesh`) is not installed in the Docker image. Instead, the workflow installs it inside the job, for example:
+```
+      - name: Install API Mesh plugin
+        run: aio plugins:install @adobe/aio-cli-plugin-api-mesh
+
+```
+This is required because:
+
+- AIO plugins are resolved per user via the CLI config directory under `$HOME` (for example `~/.config/@adobe/aio`), not from a global shared path.
+- In GitHub container jobs, the runner forcibly sets `HOME=/github/home`, which is different from the `HOME` used at image build time (typically `/root`).
+- If the plugin is only installed during `docker build`, it ends up wired to the build-time home and config; when the job runs with `HOME=/github/home`, `aio` does not see those plugins and `aio api-mesh:*` commands fail.
+
+By installing `@adobe/aio-cli-plugin-api-mesh` inside the GitHub Actions job (with the final `$HOME` already set by the runner), the CLI always discovers the plugin correctly, regardless of how the container image was built.
+
+**If you do not have such a runner image, use the 1.x version of this template, where:**
+
+- The job runs directly on `ubuntu-latest` (no `container`: stanza).
+- `aio` and the API Mesh plugin are installed inside the workflow steps (for example using `adobe/aio-cli-setup-action` plus an explicit `aio plugins:install @adobe/aio-cli-plugin-api-mesh`).
+
+In short:
+
+- 2.x template – requires a prebuilt runner image with `aio`; no CLI installation steps in the workflow.
+- 1.x template – no custom image required; CLI and plugin are installed at runtime in the job, which is slower but does not depend on Docker image management.
+
 ## Quick Start
 
 1. **Fork this repo** or use it as a template inside your organization.

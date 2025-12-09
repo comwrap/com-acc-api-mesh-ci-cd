@@ -13,12 +13,28 @@ jobs:
   deploy:
     name: Deploy API Mesh
     runs-on: ${{ matrix.os }}
+    container:
+      image: ghcr.io/comwrap/aio-mesh-runner:latest
+      env:
+        HOME: /root
     strategy:
       max-parallel: 1
       matrix:
         node-version: ["20"]
         os: [ubuntu-latest]
     steps:
+      - name: Ensure AIO CLI available
+        run: |
+          which aio || { echo "aio missing"; exit 1; }
+          aio -h
+      - name: Install API Mesh plugin
+        run: aio plugins:install @adobe/aio-cli-plugin-api-mesh
+      - name: Debug AIO plugins
+        run: |
+          echo "HOME=$HOME"
+          which aio
+          aio -V
+          aio plugins
       - name: Checkout
         uses: actions/checkout@v4
       - name: Use Node.js ${{ matrix.node-version }}
@@ -90,6 +106,7 @@ jobs:
             echo "Warning: MESH_SECRETS not provided; secrets.yaml will not be generated" >&2
           fi
       - name: Materialize mesh secrets file
+        shell: bash
         if: ${{ env.MESH_SECRETS != '' }}
         run: |
           set -euo pipefail
@@ -101,13 +118,6 @@ jobs:
           set -euo pipefail
           printf '%s\n' "$AIO_ENV_FILE" > .env
           chmod 600 .env
-      - name: Setup CLI
-        uses: adobe/aio-cli-setup-action@1.3.0
-        with:
-          os: ${{ matrix.os }}
-          version: 11.x.x
-      - name: api-mesh-plugin install
-        run: aio plugins:install @adobe/aio-cli-plugin-api-mesh
       - name: Auth
         uses: adobe/aio-apps-action@4.0.0
         with:
@@ -142,6 +152,7 @@ jobs:
         continue-on-error: true
         run: echo "Get Mesh Output - ${{ steps.get_mesh.outputs.mesh_output }}"
       - name: Compute Mesh Credential Flags
+        shell: bash
         id: mesh_args
         run: |
           set -euo pipefail
@@ -160,6 +171,7 @@ jobs:
         if: ${{ !contains(steps.get_mesh.outputs.mesh_output, 'No mesh found') }}
         run: aio api-mesh:update ${{ steps.mesh_args.outputs.args }}
       - name: Wait for Mesh Provisioning
+        shell: bash
         run: |
           set -euo pipefail
           max_attempts=60
@@ -175,6 +187,9 @@ jobs:
             elif echo "$status_output" | grep -Eq "Mesh is currently building|Your mesh is being provisioned.|Currently provisioning your mesh|Wait a few minutes and try again.|Unable to get mesh status"; then
               echo "Mesh is currently building. Waiting 10 seconds before next check."
               sleep 10
+            elif echo "$status_output" | grep -F "is not a aio command" >/dev/null; then
+              echo "API Mesh plugin not available. Failing explicitly."
+              exit 1
             else
               echo "Unexpected status output. Treating as failure."
               exit 1
@@ -193,7 +208,7 @@ jobs:
         run: aio api-mesh:status
 
   tests:
-      name: Execute Tests
-      needs: [deploy]
-      # Use the path to the reusable workflow file
-      uses: ./.github/workflows/tests.yaml
+    name: Execute Tests
+    needs: [deploy]
+    # Use the path to the reusable workflow file
+    uses: ./.github/workflows/tests.yaml
