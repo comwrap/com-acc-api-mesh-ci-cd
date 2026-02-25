@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. The format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the repository uses [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-02-25
+### Added
+- New "Newman Testing Configuration" section in README documenting folder structure, file details, and step-by-step instructions for setting up Postman/Newman regression tests.
+- New "How Environment Variable Injection Works" subsection explaining the `AIO_ENV_FILE` mechanism and `.env` materialization flow.
+- Updated repository layout in README to include `tests/newman/` folder structure.
+
+### Fixed
+- Added explicit `shell: bash` to "Materialize branch .env file" step in `deploy.yaml` for consistency with other shell steps.
+
 ## [1.1.1] - 2025-12-04
 ### Added
 - Workflow now consumes GitHub repository variables `ENV_STAGE` / `ENV_PROD`, writes their full multi-line contents into `.env`, and feeds that file to the Adobe API Mesh CLI before create/update operations.
