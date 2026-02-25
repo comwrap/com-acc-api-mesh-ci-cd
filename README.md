@@ -29,6 +29,11 @@ Repository layout (expected):
 ├── .github/workflows/tests.yaml        # Reusable Newman regression tests
 ├── mesh.json                          # API Mesh definition (commit your own)
 ├── .env                               # Optional runtime variables used by mesh.json
+├── tests/
+│   └── newman/
+│       ├── collection.json            # Postman collection export
+│       ├── environment_staging.json   # Environment variables for staging
+│       └── environment_production.json # Environment variables for production
 └── README.md                          # This documentation
 ```
 
@@ -68,6 +73,27 @@ Add any extra secrets referenced by your mesh (for custom resolvers, HTTP header
 | `ENV_PROD` | Pushes to `production` | Production `.env` payload, typically mirroring secure resolver configuration for production meshes. |
 
 If these variables are present, the workflow writes them to `.env` before running `aio api-mesh:*`. If they are empty, the pipeline falls back to any `.env` file committed in the repository or skips the flag entirely.
+
+#### How Environment Variable Injection Works
+
+The workflow uses an internal environment variable `AIO_ENV_FILE` to handle the `.env` materialization:
+
+1. **Branch detection** — The workflow identifies the current branch (`staging` or `production`).
+2. **Variable mapping** — If `ENV_STAGE` or `ENV_PROD` is set, its contents are stored in the `AIO_ENV_FILE` workflow environment variable.
+3. **File materialization** — If `AIO_ENV_FILE` is not empty, the workflow writes its contents to `.env` in the repository root with restricted permissions (`chmod 600`).
+4. **Flag computation** — The "Compute Mesh Credential Flags" step checks for the presence of `.env` and automatically appends `--env .env` to the mesh CLI commands.
+
+This approach allows you to:
+- Keep sensitive environment values out of Git by storing them as GitHub Variables.
+- Override a committed `.env` file with branch-specific values.
+- Support multi-line `.env` payloads (GitHub Variables preserve newlines).
+
+**Example `ENV_STAGE` variable content:**
+```
+RESOLVER_API_KEY=sk-staging-xxx
+BACKEND_URL=https://api.staging.example.com
+DEBUG=true
+```
 
 ---
 
@@ -168,6 +194,78 @@ Once the workflow succeeds, your Adobe API Mesh instance will be created (if mis
 6. **Mesh lifecycle** – runs `aio api-mesh:get`; if no mesh exists it calls `api-mesh:create`, otherwise `api-mesh:update`, then waits briefly, describes the mesh, and fetches status.
 
 Extend or reorder steps as needed (e.g., run linting/tests before deployment, send Slack notifications after success, etc.).
+
+---
+
+## Newman Testing Configuration
+
+The template includes a reusable testing workflow (`.github/workflows/tests.yaml`) that runs Newman-based regression tests after each successful deployment. Tests are **optional** — the workflow gracefully skips execution if the required files are not present.
+
+### Required Folder Structure
+
+```
+tests/
+└── newman/
+    ├── collection.json              # Postman collection export (required)
+    ├── environment_staging.json     # Environment variables for staging branch
+    └── environment_production.json  # Environment variables for production branch
+```
+
+### File Details
+
+| File | Description |
+| --- | --- |
+| `collection.json` | Exported Postman collection containing your API tests. Export from Postman using **Collection → Export → Collection v2.1**. |
+| `environment_staging.json` | Postman environment export with variables for staging (e.g., `baseUrl`, API keys). The filename must match `environment_staging.json`. |
+| `environment_production.json` | Postman environment export with variables for production. The filename must match `environment_production.json`. |
+
+### How It Works
+
+1. After the `deploy` job completes successfully, the `tests` job is triggered.
+2. The workflow checks for `tests/newman/collection.json` — if missing, tests are skipped.
+3. The workflow looks for `tests/newman/environment_<branch>.json` based on the current branch — if missing, tests are skipped.
+4. If both files exist, Newman runs inside a Docker container (`postman/newman_alpine33`) and executes all requests in the collection against the branch-specific environment.
+
+### Creating Your Test Files
+
+1. **Export your Postman collection:**
+   - Open Postman and select your collection.
+   - Click the **...** menu → **Export** → **Collection v2.1** → Save as `collection.json`.
+
+2. **Export your Postman environments:**
+   - Go to **Environments** in Postman.
+   - Select the environment → **...** → **Export** → Save as `environment_staging.json` or `environment_production.json`.
+
+3. **Place files in the correct location:**
+   ```bash
+   mkdir -p tests/newman
+   mv collection.json tests/newman/
+   mv environment_staging.json tests/newman/
+   mv environment_production.json tests/newman/
+   ```
+
+### Example Environment File
+
+```json
+{
+  "id": "abc123",
+  "name": "staging",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "https://your-mesh-staging.adobeioruntime.net/api/v1/web/mesh",
+      "enabled": true
+    },
+    {
+      "key": "apiKey",
+      "value": "your-staging-api-key",
+      "enabled": true
+    }
+  ]
+}
+```
+
+> **Tip:** Avoid committing sensitive values in environment files. Use Postman's variable substitution with placeholder values and override them via GitHub Secrets if needed.
 
 ---
 

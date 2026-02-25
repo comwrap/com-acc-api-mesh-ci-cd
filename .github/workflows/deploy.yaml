@@ -113,6 +113,7 @@ jobs:
           printf '%s\n' "$MESH_SECRETS" > secrets.yaml
           chmod 600 secrets.yaml
       - name: Materialize branch .env file
+        shell: bash
         if: ${{ env.AIO_ENV_FILE != '' }}
         run: |
           set -euo pipefail
