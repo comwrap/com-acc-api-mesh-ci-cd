@@ -15,32 +15,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     container:
       image: ghcr.io/comwrap/aio-mesh-runner:latest
-      env:
-        HOME: /root
     strategy:
       max-parallel: 1
       matrix:
-        node-version: ["20"]
         os: [ubuntu-latest]
     steps:
-      - name: Ensure AIO CLI available
+      # The CLI and the API Mesh plugin are baked into the runner image, so this
+      # asserts the plugin resolves rather than installing it. Checking `aio`
+      # alone would not catch it: the plugin is the part that can go missing.
+      - name: Ensure AIO CLI and API Mesh plugin available
         run: |
-          which aio || { echo "aio missing"; exit 1; }
-          aio -h
-      - name: Install API Mesh plugin
-        run: aio plugins:install @adobe/aio-cli-plugin-api-mesh
-      - name: Debug AIO plugins
-        run: |
-          echo "HOME=$HOME"
-          which aio
-          aio -V
-          aio plugins
+          aio --version
+          aio api-mesh --help > /dev/null
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
       - name: Map branch-specific secrets
         run: |
           BRANCH_NAME="${GITHUB_REF_NAME:-${GITHUB_REF##*/}}"
@@ -134,10 +122,15 @@ jobs:
         run: aio config set cli.env prod
       - name: Select org
         run: aio console:org:select ${{ secrets.ORGID }}
+      # `console:project:select` and `console:workspace:select` both call
+      # ensureDevTermAccepted, which prompts for the Adobe Developer Terms of
+      # Service when the org has not accepted them. There is no non-interactive
+      # flag, and with no TTY the job blocks and dies with exit 130, so answer
+      # the prompt on stdin. `console:org:select` never reaches that check.
       - name: Select project
-        run: aio console:project:select ${{ secrets.PROJECTID }}
+        run: yes | aio console:project:select ${{ secrets.PROJECTID }}
       - name: Select workspace
-        run: aio console:workspace:select ${{ env.WORKSPACEID }}
+        run: yes | aio console:workspace:select ${{ env.WORKSPACEID }}
       - name: Print AIO CLI Config
         run: aio config list
       - name: Get Mesh

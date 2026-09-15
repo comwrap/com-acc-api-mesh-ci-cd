@@ -1,6 +1,6 @@
 # Adobe API Mesh CI/CD Template
 
-> ⚠️ **Important:** Starting from version 2.x, a custom container is required. The Dockerfile can be found in `.github/images/aio-mesh-runner/Dockerfile`. If you prefer to use a standard GitHub runner without a custom container, please use version 1.x of this template.
+> ⚠️ **Important:** Starting from version 2.x, a custom container is required. The Dockerfile can be found in `.github/workflows/images/aio-mesh-runner/Dockerfile`. If you prefer to use a standard GitHub runner without a custom container, please use version 1.x of this template.
 
 This repository is a lightweight starting point for teams that want a repeatable GitHub Actions pipeline for provisioning and updating Adobe API Mesh configurations. Fork it, drop in your mesh definition files, wire up the required Adobe Developer Console credentials, and you will have a push-button deployment path for staging and production meshes.
 
@@ -46,7 +46,7 @@ Repository layout (expected):
 1. **Adobe Developer Console access** with permissions to the target organization, project, and workspaces that host your meshes.
 2. **Mesh definition files** (`mesh.json` plus any schema/resolver files) committed to the repository.
 3. **GitHub repository admin rights** to configure Actions secrets and branch protection rules.
-4. **Node.js 20.x** compatibility for any local development or custom steps (the workflow pins Node 20 via the matrix but can be adjusted).
+4. **Node.js 20.x** compatibility for any local development or custom steps (the workflow inherits Node 20 from the runner image).
 5. **Adobe I/O CLI knowledge** (`aio`) in case you want to run the same commands locally for troubleshooting.
 
 ---
@@ -98,35 +98,78 @@ DEBUG=true
 ---
 
 ### Runner image requirements
-This template is designed to run the deploy workflow inside a lightweight Docker image that already contains Node.js 20.x and the Adobe AIO CLI, but does not bake in the API Mesh plugin. The plugin is installed on each run inside the GitHub Actions job so that it is always available under the correct `$HOME` and CLI config scope.
 
-Dockerfile used by the workflow:
+The deploy workflow runs inside a lightweight Docker image that ships Node.js 20,
+the Adobe AIO CLI **and** the API Mesh plugin, so the job installs nothing at
+runtime.
+
+Dockerfile used by the workflow (`.github/workflows/images/aio-mesh-runner/Dockerfile`):
 
 ```
-FROM node:20-bullseye-slim
+FROM node:20-bookworm-slim
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @adobe/aio-cli && \
-    npm cache clean --force && \
-    rm -rf /root/.npm /tmp/*
+ENV XDG_DATA_HOME=/usr/local/share
+
+RUN npm install -g @adobe/aio-cli \
+    && aio plugins:install @adobe/aio-cli-plugin-api-mesh \
+    && mkdir -p /tmp/homecheck \
+    && HOME=/tmp/homecheck aio api-mesh --help > /dev/null \
+    && npm cache clean --force \
+    && rm -rf /root/.npm /tmp/*
 
 WORKDIR /workspace
-
 ```
-Build and push the AMD64 image:
+
+#### Why `XDG_DATA_HOME` is pinned
+
+oclif — the framework behind `aio` — resolves installed plugins from
+`$XDG_DATA_HOME`, falling back to `$HOME/.local/share`. In GitHub container jobs
+the runner sets `HOME=/github/home`, which is not the `HOME` in effect during
+`docker build` (`/root`). A plugin baked in without pinning the data directory
+therefore ends up wired to the build-time home and is invisible at run time —
+`aio api-mesh:*` fails with `api-mesh is not a aio command`. Earlier versions of
+this template worked around that by reinstalling the plugin on every run.
+
+Setting `XDG_DATA_HOME` to an absolute path makes the plugin resolve under any
+`$HOME`, so it can be baked in. `@adobe/aio-lib-core-config` reads the same
+variable, so `aio config` and the auth context stay consistent too.
+
+The `HOME=/tmp/homecheck aio api-mesh --help` line is a build-time assertion: it
+reproduces the exact failure mode above, so the image build fails rather than
+shipping a runner whose plugin only works under one `HOME`.
+
+#### Building the image
+
+Pushes to `main` that touch the Dockerfile trigger
+`.github/workflows/build-image.yaml`, which builds `linux/amd64` and pushes
+`ghcr.io/<owner>/aio-mesh-runner:latest` plus a `:<commit-sha>` tag for
+rollbacks. It can also be run by hand from the **Actions** tab.
+
+To build and push manually:
+
 ```
 docker buildx build \
   --platform linux/amd64 \
   -t ghcr.io/<org-or-user>/aio-mesh-runner:latest \
   --push \
-  -f .github/images/aio-mesh-runner/Dockerfile .
+  .github/workflows/images/aio-mesh-runner
 ```
 
-Reference it in `deploy.yaml`:
+To verify a built image behaves the way a GitHub container job will run it:
+
+```
+docker run --rm -e HOME=/github/home ghcr.io/<org-or-user>/aio-mesh-runner:latest \
+  sh -c 'mkdir -p /github/home && aio plugins && aio api-mesh --help'
+```
+
+`aio plugins` must list `@adobe/aio-cli-plugin-api-mesh`.
+
+Reference the image in `deploy.yaml`:
 ```
 jobs:
   deploy:
@@ -135,25 +178,10 @@ jobs:
       image: ghcr.io/<org-or-user>/aio-mesh-runner:latest
     strategy:
       matrix:
-        node-version: ["20"]
         os: [ubuntu-latest]
     # ...
 
 ```
-#### Why the API Mesh plugin is installed in the runner
-The API Mesh plugin (`@adobe/aio-cli-plugin-api-mesh`) is not installed in the Docker image. Instead, the workflow installs it inside the job, for example:
-```
-      - name: Install API Mesh plugin
-        run: aio plugins:install @adobe/aio-cli-plugin-api-mesh
-
-```
-This is required because:
-
-- AIO plugins are resolved per user via the CLI config directory under `$HOME` (for example `~/.config/@adobe/aio`), not from a global shared path.
-- In GitHub container jobs, the runner forcibly sets `HOME=/github/home`, which is different from the `HOME` used at image build time (typically `/root`).
-- If the plugin is only installed during `docker build`, it ends up wired to the build-time home and config; when the job runs with `HOME=/github/home`, `aio` does not see those plugins and `aio api-mesh:*` commands fail.
-
-By installing `@adobe/aio-cli-plugin-api-mesh` inside the GitHub Actions job (with the final `$HOME` already set by the runner), the CLI always discovers the plugin correctly, regardless of how the container image was built.
 
 **If you do not have such a runner image, use the 1.x version of this template, where:**
 
@@ -162,8 +190,24 @@ By installing `@adobe/aio-cli-plugin-api-mesh` inside the GitHub Actions job (wi
 
 In short:
 
-- 2.x template – requires a prebuilt runner image with `aio`; no CLI installation steps in the workflow.
+- 2.x template – requires a prebuilt runner image with `aio` and the API Mesh plugin; no CLI installation steps in the workflow.
 - 1.x template – no custom image required; CLI and plugin are installed at runtime in the job, which is slower but does not depend on Docker image management.
+
+### Developer Terms of Service
+
+`aio console:project:select` and `aio console:workspace:select` prompt for the
+Adobe Developer Terms of Service if the organization has not accepted them. There
+is no non-interactive flag for that prompt, and with no TTY the job blocks and
+exits with code 130. Both steps therefore answer it on stdin:
+
+```
+- name: Select project
+  run: yes | aio console:project:select ${{ secrets.PROJECTID }}
+```
+
+Acceptance is recorded per organization on Adobe's side, so this fires once. If
+you would rather not accept the terms from CI, accept them once in the Adobe
+Developer Console and drop the `yes |` prefixes.
 
 ## Quick Start
 
@@ -186,12 +230,11 @@ Once the workflow succeeds, your Adobe API Mesh instance will be created (if mis
 
 ## Workflow Walkthrough (`deploy.yaml`)
 
-1. **Checkout & Node setup** – pulls repository code and provisions Node 20 on `ubuntu-latest`.
+1. **Checkout** – verifies the baked-in `aio` CLI and API Mesh plugin, then pulls repository code. Node 20 comes from the runner image; nothing is installed at runtime.
 2. **Branch-aware env mapping** – resolves GitHub secrets to runtime variables (`TARGET_ENV`, `CLIENTID`, etc.). Only `staging` and `production` are allowed to prevent accidental deployments from other branches.
 3. **Secret validation** – fails fast if any required value is missing.
-4. **Adobe I/O CLI bootstrap** – installs `aio` plus the API Mesh plugin (`@adobe/aio-cli-plugin-api-mesh`).
-5. **Authentication & targeting** – performs `oauth_sts`, selects the right org/project/workspace, and prints the CLI config for traceability.
-6. **Mesh lifecycle** – runs `aio api-mesh:get`; if no mesh exists it calls `api-mesh:create`, otherwise `api-mesh:update`, then waits briefly, describes the mesh, and fetches status.
+4. **Authentication & targeting** – performs `oauth_sts`, selects the right org/project/workspace, and prints the CLI config for traceability.
+5. **Mesh lifecycle** – runs `aio api-mesh:get`; if no mesh exists it calls `api-mesh:create`, otherwise `api-mesh:update`, then waits briefly, describes the mesh, and fetches status.
 
 Extend or reorder steps as needed (e.g., run linting/tests before deployment, send Slack notifications after success, etc.).
 
@@ -272,7 +315,7 @@ tests/
 ## Customizing the Template
 
 - **Additional environments** – duplicate the branch/secrets mapping block and add new branches like `qa` or `dev` with their own credential sets.
-- **Matrix changes** – adjust `matrix.node-version` or `os` if you need different runtimes.
+- **Runtime changes** – the Node version comes from the runner image, not the workflow; change the `FROM` line in the Dockerfile. Adjust `matrix.os` if you deploy from self-hosted runners.
 - **Multiple meshes** – add extra steps to iterate over multiple `mesh.json` files or parameterize the mesh name via `.env` values.
 - **Observability** – append steps that push deployment metadata to your logging/monitoring stack.
 
